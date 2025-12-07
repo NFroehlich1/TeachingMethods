@@ -63,7 +63,12 @@ extras_require = {
     "image": ["Pillow>=10.0.0"],  # For image format conversion (BMP, TIFF, GIF, WebP)
     "text": ["reportlab>=4.0.0"],  # For text file to PDF conversion (TXT, MD)
     "office": [],  # Office document processing requires LibreOffice (external program)
-    "all": ["Pillow>=10.0.0", "reportlab>=4.0.0"],  # All optional features
+    "supabase": ["psycopg2-binary>=2.9.0"],  # For Supabase PostgreSQL integration
+    "all": [
+        "Pillow>=10.0.0",
+        "reportlab>=4.0.0",
+        "psycopg2-binary>=2.9.0",
+    ],  # All optional features including Supabase
     "markdown": [
         "markdown>=3.4.0",
         "weasyprint>=60.0",

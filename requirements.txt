@@ -9,6 +9,7 @@ tqdm
 # - [image]: Pillow>=10.0.0 (for BMP, TIFF, GIF, WebP format conversion)
 # - [text]: reportlab>=4.0.0 (for TXT, MD to PDF conversion)
 # - [office]: requires LibreOffice (external program, not Python package)
-# - [all]: includes all optional dependencies
+# - [supabase]: psycopg2-binary>=2.9.0 (for Supabase PostgreSQL integration)
+# - [all]: includes all optional dependencies including Supabase
 #
-# Install with: pip install raganything[image,text] or pip install raganything[all]
+# Install with: pip install raganything[image,text,supabase] or pip install raganything[all]

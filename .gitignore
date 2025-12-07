@@ -68,6 +68,14 @@ lightrag-dev/
 gui/
 tiktoken_cache/
 
+# Webapp build files
+webapp/node_modules/
+webapp/build/
+webapp/.env
+webapp_api/uploads/
+webapp_api/__pycache__/
+webapp_api/*.log
+
 # unit-test files
 test_*
 
