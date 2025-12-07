@@ -70,6 +70,12 @@ function App() {
     setIsLoading(true);
 
     try {
+      // Format history for backend
+      const history = messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
       const response = await fetch('http://localhost:8000/api/query', {
         method: 'POST',
         headers: {
@@ -79,7 +85,8 @@ function App() {
         body: JSON.stringify({ 
           query: message,
           llm_provider: llmProvider,
-          web_search: webSearch
+          web_search: webSearch,
+          history: history
         }),
       });
 
