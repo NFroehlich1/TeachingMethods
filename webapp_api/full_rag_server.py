@@ -55,6 +55,23 @@ else:
 # Allow Port override
 SUPABASE_DB_PORT = os.getenv("SUPABASE_DB_PORT", "5432")
 
+# FIX: Automatically adjust user for pooler connections if not explicitly set
+# If we are connecting to a Supabase pooler, the user MUST be in format postgres.project_ref
+if "pooler.supabase.com" in SUPABASE_DB_HOST and SUPABASE_DB_USER == "postgres":
+     # Try to extract project ref from SUPABASE_URL if available
+    if SUPABASE_URL and "supabase" in SUPABASE_URL:
+        try:
+             # Extract project ref from URL like https://xyz.supabase.co
+             from urllib.parse import urlparse
+             parsed = urlparse(SUPABASE_URL)
+             hostname = parsed.hostname or ""
+             if hostname:
+                 extracted_ref = hostname.split(".")[0]
+                 SUPABASE_DB_USER = f"postgres.{extracted_ref}"
+                 print(f"Configuration: Auto-corrected Pooler User to {SUPABASE_DB_USER}")
+        except Exception as e:
+            print(f"Warning: Could not auto-correct pooler user: {e}")
+
 # LLM Configuration - Default to local Ollama for laptop hosting
 # When accessed from outside, your laptop serves as the LLM host
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")  # "ollama" (local on your laptop), "gemini", "openai"
