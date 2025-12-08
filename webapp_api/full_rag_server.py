@@ -7,9 +7,10 @@ import psycopg2
 import uvicorn
 import markdown
 import re
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Header
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
@@ -17,7 +18,10 @@ from pathlib import Path
 from datetime import datetime
 
 # Load environment variables
-load_dotenv(dotenv_path="../.env")
+# Explicitly look in project root
+BASE_DIR = Path(__file__).resolve().parent
+DOTENV_PATH = BASE_DIR.parent / ".env"
+load_dotenv(dotenv_path=DOTENV_PATH)
 
 # --- Configuration ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -29,19 +33,32 @@ project_ref = SUPABASE_URL.split("//")[1].split(".")[0]
 SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co"
 SUPABASE_DB_PORT = "5432"
 
-# LLM Configuration
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")  # "ollama", "gemini", "openai"
+# LLM Configuration - Default to local Ollama for laptop hosting
+# When accessed from outside, your laptop serves as the LLM host
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")  # "ollama" (local on your laptop), "gemini", "openai"
+# Ollama runs on your laptop - use localhost (server forwards requests to local Ollama)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = "gemini-2.0-flash-exp"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")  # Local model running on your laptop
+OLLAMA_FALLBACK_MODEL = os.getenv("OLLAMA_FALLBACK_MODEL", "llama2:7b") # Fallback model for Rate Limits
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Hugging Face Configuration
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+# Primary Hugging Face model - Kimi K2 Thinking
+HUGGINGFACE_MODEL = os.getenv("HUGGINGFACE_MODEL", "moonshotai/Kimi-K2-Thinking")
+# Secondary Hugging Face model - Meta Llama 3 8B Instruct
+HUGGINGFACE_MODEL_2 = os.getenv("HUGGINGFACE_MODEL_2", "meta-llama/Meta-Llama-3-8B-Instruct")
+
 # Embedding Configuration
-# Using Ollama for embeddings to keep it local/free by default
-# "nomic-embed-text" is a good default for Ollama
+# "ollama" (local) or "huggingface" (cloud/api)
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama") 
 EMBEDDING_MODEL = "nomic-embed-text" 
-EMBEDDING_DIM = 3072  # Dimension for lightrag_vector_storage
+# HF model for embeddings (using Inference API - usually 384 or 768 or 1024 dims)
+# sentence-transformers/all-MiniLM-L6-v2 is 384
+# BAAI/bge-m3 is 1024
+# nomic-ai/nomic-embed-text-v1.5 is 768
+HF_EMBEDDING_MODEL = os.getenv("HF_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+EMBEDDING_DIM = 3072  # Dimension for lightrag_vector_storage (we pad/truncate to match this legacy size)
 
 # --- Database Connection ---
 def get_db_connection():
@@ -59,6 +76,40 @@ def get_db_connection():
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 # --- Helpers ---
+
+def get_huggingface_embedding(text: str) -> List[float]:
+    """Generate embedding using Hugging Face Inference API"""
+    try:
+        api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_EMBEDDING_MODEL}"
+        headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+        
+        response = requests.post(api_url, headers=headers, json={"inputs": text, "options": {"wait_for_model": True}})
+        
+        if response.status_code == 200:
+            embedding = response.json()
+            # Handle list of lists (batch) vs single list
+            if isinstance(embedding, list) and isinstance(embedding[0], list):
+                embedding = embedding[0]
+            
+            # Pad or truncate to match EMBEDDING_DIM
+            if len(embedding) < EMBEDDING_DIM:
+                embedding.extend([0.0] * (EMBEDDING_DIM - len(embedding)))
+            elif len(embedding) > EMBEDDING_DIM:
+                embedding = embedding[:EMBEDDING_DIM]
+            return embedding
+        else:
+            print(f"HF embedding error: {response.status_code} - {response.text}")
+            return [0.1] * EMBEDDING_DIM
+    except Exception as e:
+        print(f"HF embedding connection error: {e}")
+        return [0.1] * EMBEDDING_DIM
+
+def get_embedding(text: str) -> List[float]:
+    """Wrapper to get embedding from configured provider"""
+    if EMBEDDING_PROVIDER == "huggingface":
+        return get_huggingface_embedding(text)
+    else:
+        return get_ollama_embedding(text)
 
 def get_ollama_embedding(text: str) -> List[float]:
     """Generate embedding using Ollama"""
@@ -95,17 +146,8 @@ def ensure_workspace_tables(workspace: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Check if table exists
-    cursor.execute(f"""
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_name = 'lightrag_vector_storage_{safe_workspace}'
-        );
-    """)
-    exists = cursor.fetchone()[0]
-    
-    if not exists:
-        print(f"Creating tables for workspace: {safe_workspace}")
+    # Always attempt to create tables (IF NOT EXISTS handles duplication)
+    try:
         # Create vector storage table
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS lightrag_vector_storage_{safe_workspace} (
@@ -123,6 +165,9 @@ def ensure_workspace_tables(workspace: str):
             );
         """)
         conn.commit()
+    except Exception as e:
+        print(f"Error creating tables: {e}")
+        conn.rollback()
     
     cursor.close()
     conn.close()
@@ -148,32 +193,23 @@ app.add_middleware(
 
 # --- Endpoints ---
 
-@app.post("/api/upload")
-async def upload_document(
-    file: UploadFile = File(...), 
-    x_workspace: Optional[str] = Header(default="default")
-):
+def process_document_background(file_path: str, filename: str, safe_workspace: str):
+    """Process document in background to avoid timeouts"""
     try:
-        workspace = x_workspace or "default"
-        print(f"DEBUG: Uploading to workspace: '{workspace}'")
-        safe_workspace = ensure_workspace_tables(workspace)
+        print(f"Background: Processing {filename}...")
         
-        # Read file content
-        content = await file.read()
-        file_path = f"uploads/{file.filename}"
-        os.makedirs("uploads", exist_ok=True)
-        
-        with open(file_path, "wb") as f:
-            f.write(content)
-            
+        # Read content from disk
+        with open(file_path, "rb") as f:
+            content = f.read()
+
         # Extract text based on file type
         text_content = ""
-        if file.filename.endswith(".pdf"):
+        if filename.endswith(".pdf"):
             import PyPDF2
             reader = PyPDF2.PdfReader(file_path)
             for page in reader.pages:
                 text_content += page.extract_text() + "\n"
-        elif file.filename.endswith(".md"):
+        elif filename.endswith(".md"):
             text_content = convert_markdown_to_text(content.decode("utf-8"))
         else:
             text_content = content.decode("utf-8")
@@ -194,7 +230,7 @@ async def upload_document(
         stored_count = 0
         for i, chunk in enumerate(chunks):
             try:
-                embedding = get_ollama_embedding(chunk)
+                embedding = get_embedding(chunk)
                 
                 # Insert into vector storage
                 cursor.execute(f"""
@@ -203,34 +239,115 @@ async def upload_document(
                 """, (
                     chunk, 
                     json.dumps({
-                        "source": file.filename,
+                        "source": filename,
                         "chunk_index": i,
                         "filename": Path(file_path).name
                     }),
                     embedding
                 ))
                 
-                # Update document status in KV store
+                # Update document status in KV store (periodically or every chunk)
                 cursor.execute(f"""
                     INSERT INTO lightrag_kv_store_{safe_workspace} (key, value)
                     VALUES (%s, %s)
                     ON CONFLICT (key) DO UPDATE SET value = %s
                 """, (
-                    f"doc_status_{file.filename}",
+                    f"doc_status_{filename}",
                     json.dumps({"status": "processing", "chunks_total": len(chunks), "chunks_processed": i+1}),
                     json.dumps({"status": "processing", "chunks_total": len(chunks), "chunks_processed": i+1})
                 ))
+                conn.commit() # Commit frequently to show progress
                 stored_count += 1
             except Exception as e:
                 print(f"    Fehler beim Speichern von Chunk {i}: {e}")
                 continue
         
+        # Final success status
+        cursor.execute(f"""
+            INSERT INTO lightrag_kv_store_{safe_workspace} (key, value)
+            VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = %s
+        """, (
+            f"doc_status_{filename}",
+            json.dumps({"status": "processed", "chunks_total": len(chunks), "chunks_processed": stored_count}),
+            json.dumps({"status": "processed", "chunks_total": len(chunks), "chunks_processed": stored_count})
+        ))
         conn.commit()
         cursor.close()
         conn.close()
         
-        print(f"  ✓ {stored_count} Chunks mit Embeddings in Supabase gespeichert")
-        return stored_count
+        print(f"  ✓ Background: {stored_count} Chunks processed for {filename}")
+        
+    except Exception as e:
+        print(f"Background Error processing {filename}: {e}")
+        import traceback
+        traceback.print_exc()
+        # Update status to error
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(f"""
+                INSERT INTO lightrag_kv_store_{safe_workspace} (key, value)
+                VALUES (%s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = %s
+            """, (
+                f"doc_status_{filename}",
+                json.dumps({"status": "error", "error": str(e)}),
+                json.dumps({"status": "error", "error": str(e)})
+            ))
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except:
+            pass
+
+
+@app.post("/api/upload")
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...), 
+    x_workspace: Optional[str] = Header(default="default")
+):
+    try:
+        workspace = x_workspace or "default"
+        print(f"DEBUG: Uploading to workspace: '{workspace}'")
+        safe_workspace = ensure_workspace_tables(workspace)
+        
+        # Read file content
+        content = await file.read()
+        
+        # Use absolute path for uploads directory
+        uploads_dir = BASE_DIR / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Sanitize filename (basic)
+        safe_filename = Path(file.filename).name
+        file_path = uploads_dir / safe_filename
+        
+        with open(file_path, "wb") as f:
+            f.write(content)
+            
+        # Initialize status as 'uploading'
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            INSERT INTO lightrag_kv_store_{safe_workspace} (key, value)
+            VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = %s
+        """, (
+            f"doc_status_{file.filename}",
+            json.dumps({"status": "uploading", "chunks_total": 0, "chunks_processed": 0}),
+            json.dumps({"status": "uploading", "chunks_total": 0, "chunks_processed": 0})
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # Start background processing
+        # Pass string path for compatibility
+        background_tasks.add_task(process_document_background, str(file_path), file.filename, safe_workspace)
+        
+        return {"status": "queued", "message": "Document upload accepted. Processing in background."}
         
     except Exception as e:
         print(f"Fehler bei Dokumentenverarbeitung: {e}")
@@ -247,7 +364,7 @@ def search_similar_chunks(query: str, workspace: str = "default", limit: int = 1
         cursor = conn.cursor()
         
         # 1. Vector Search
-        query_embedding = get_ollama_embedding(query)
+        query_embedding = get_embedding(query)
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
         
         cursor.execute(f"""
@@ -350,24 +467,17 @@ class ChatMessage(BaseModel):
 
 class QueryRequest(BaseModel):
     query: str
-    llm_provider: str = "ollama"  # "ollama" or "gemini"
+    llm_provider: str = "huggingface"  # Default to Kimi K2 (huggingface)
     web_search: bool = False      # Allow general knowledge/web info
     history: List[ChatMessage] = []  # Chat history
-
+    show_reasoning: bool = True   # Toggle reasoning output
 
 class QueryResponse(BaseModel):
     response: str
+    reasoning: Optional[str] = None
+    provider: str = "unknown"
 
-
-@app.get("/")
-async def root():
-    return {
-        "message": "RAG Chatbot API (Full Processing)",
-        "status": "running",
-        "version": "1.0.0",
-        "llm_provider": "ollama",
-        "model": OLLAMA_MODEL
-    }
+# ... (in query endpoint)
 
 
 @app.get("/api/health")
@@ -385,8 +495,8 @@ async def health(x_workspace: Optional[str] = Header(default="default")):
         return {
             "status": "healthy",
             "database": "connected",
-            "llm_provider": "ollama",
-            "model": OLLAMA_MODEL,
+            "llm_provider": "huggingface",
+            "model": HUGGINGFACE_MODEL,
             "stored_chunks": chunk_count,
             "workspace": safe_workspace
         }
@@ -600,82 +710,157 @@ User Question: {request.query}
 Remember: Answer in {'ENGLISH' if use_english else 'GERMAN'}. Translate if necessary."""
         
         answer = ""
-        
-        if request.llm_provider == "gemini":
-            # For Gemini, try to use system_instruction parameter
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=GEMINI_API_KEY)
-                
-                # Combine instructions for system prompt
-                system_prompt = f"""You are a helpful learning assistant.
-{language_instruction}
-{knowledge_instruction}
-
-IMPORTANT TERMINOLOGY RULES:
-- PBL always stands for "Project-Based Learning" (not Problem-Based Learning or PjBL).
-- NEVER use "PjBL" as an abbreviation. Use "PBL" instead.
-
-ALWAYS FOLLOW THE LANGUAGE INSTRUCTION ABOVE."""
-
-                model = genai.GenerativeModel(
-                    GEMINI_MODEL,
-                    system_instruction=system_prompt
-                )
-                
-                # User message contains context and query
-                user_message = f"""Context from documents:
-{context}
-{chat_history_str}
-
-User Question: {request.query}
-
-OUTPUT LANGUAGE: {'ENGLISH' if use_english else 'GERMAN'}"""
-
-                response = model.generate_content(user_message)
-                answer = response.text
-                print(f"✓ Gemini response received ({len(answer)} chars)")
-            except Exception as e:
-                # Fallback to regular prompt or Ollama
-                error_msg = str(e)
-                print(f"❌ Gemini API Error: {error_msg[:200]}")
-                
-                # Check if it's a quota error
-                if "429" in error_msg or "quota" in error_msg.lower() or "ResourceExhausted" in error_msg:
-                    # Try fallback to Ollama with clear message
-                    answer = f"⚠️ Gemini Quota Exceeded. Falling back to local model.\n\n"
-                    request.llm_provider = "ollama"
-                else:
-                    return JSONResponse(
-                        status_code=500, 
-                        content={"response": f"Gemini Error: {error_msg}. Please try switching to Ollama."}
-                    )
+        reasoning_content = None
+        used_provider = request.llm_provider
 
         if request.llm_provider == "ollama":
-            # Use Ollama
-            response = requests.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,
-                        "num_ctx": 4096
-                    }
-                },
-                timeout=120
-            )
+            # Use Ollama running on this laptop
+            # Server forwards requests to local Ollama instance
+            try:
+                response = requests.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.3,
+                            "num_ctx": 4096
+                        }
+                    },
+                    timeout=120
+                )
+                
+                if response.status_code == 200:
+                    answer += response.json().get("response", "")
+                    print(f"✓ Ollama response received ({len(answer)} chars) from local model")
+                else:
+                    error_msg = response.text
+                    print(f"✗ Ollama Error: {error_msg}")
+                    raise HTTPException(
+                        status_code=500, 
+                        detail=f"Ollama Error: {error_msg}. Stelle sicher, dass Ollama auf diesem Laptop läuft!"
+                    )
+            except requests.exceptions.ConnectionError:
+                error_msg = f"Kann nicht zu Ollama verbinden ({OLLAMA_URL}). Stelle sicher, dass Ollama läuft!"
+                print(f"✗ {error_msg}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=error_msg
+                )
+        
+        # Determine which Ollama model to use (default or fallback)
+        current_ollama_model = OLLAMA_MODEL
+
+        # Handle Hugging Face models (primary and secondary)
+        if request.llm_provider == "huggingface" or request.llm_provider == "huggingface2":
+            try:
+                # Select the appropriate model based on provider
+                hf_model = HUGGINGFACE_MODEL_2 if request.llm_provider == "huggingface2" else HUGGINGFACE_MODEL
+                print(f"DEBUG: Sending request to Hugging Face ({hf_model})...")
+                
+                # Force usage of the router URL
+                hf_url = "https://router.huggingface.co/v1/chat/completions"
+                
+                payload = {
+                    "model": hf_model,
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 512,
+                    "stream": False
+                }
+                
+                print(f"DEBUG: HF Payload: {json.dumps(payload)}")
+                
+                hf_response = requests.post(
+                    hf_url,
+                    headers={
+                        "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=payload,
+                    timeout=60
+                )
+                
+                print(f"DEBUG: HF Response Code: {hf_response.status_code}")
+                
+                if hf_response.status_code == 200:
+                    result = hf_response.json()
+                    if "choices" in result and len(result["choices"]) > 0:
+                        message = result["choices"][0]["message"]
+                        content = message.get("content", "")
+                        reasoning = message.get("reasoning_content", "")
+                        
+                        if reasoning:
+                            answer = f"*Thinking Process:*\n> {reasoning.replace(chr(10), chr(10) + '> ')}\n\n---\n\n{content}"
+                        elif content:
+                            answer = content
+                        else:
+                            answer = "⚠️ Error: Empty content received from Hugging Face."
+                    else:
+                        answer = f"⚠️ Error: Unexpected response structure: {json.dumps(result)}"
+                elif hf_response.status_code == 429:
+                    print("⚠️ Hugging Face Rate Limit (429). Falling back to Ollama...")
+                    request.llm_provider = "ollama"
+                    used_provider = "ollama (fallback)"
+                    current_ollama_model = OLLAMA_FALLBACK_MODEL
+                else:
+                    answer = f"⚠️ Hugging Face Error ({hf_response.status_code}): {hf_response.text}"
+                    
+            except Exception as e:
+                print(f"Hugging Face Exception: {e}")
+                print("Falling back to Ollama due to connection error...")
+                request.llm_provider = "ollama"
+                used_provider = "ollama (fallback)"
+                current_ollama_model = OLLAMA_FALLBACK_MODEL
+
+        if request.llm_provider == "ollama":
+            # Use Ollama running on this laptop
+            # Server forwards requests to local Ollama instance
+            try:
+                print(f"DEBUG: Sending request to Ollama ({current_ollama_model})...")
+                response = requests.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={
+                        "model": current_ollama_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.3,
+                            "num_ctx": 4096
+                        }
+                    },
+                    timeout=120
+                )
+                
+                if response.status_code == 200:
+                    answer += response.json().get("response", "")
+                    print(f"✓ Ollama response received ({len(answer)} chars) from local model")
+                else:
+                    error_msg = response.text
+                    print(f"✗ Ollama Error: {error_msg}")
+                    if not answer: # Only raise if no answer from HF
+                        raise HTTPException(
+                            status_code=500, 
+                            detail=f"Ollama Error: {error_msg}. Stelle sicher, dass Ollama auf diesem Laptop läuft!"
+                        )
+            except requests.exceptions.ConnectionError:
+                error_msg = f"Kann nicht zu Ollama verbinden ({OLLAMA_URL}). Stelle sicher, dass Ollama läuft!"
+                print(f"✗ {error_msg}")
+                if not answer:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=error_msg
+                    )
+
+        # Final safety check: Never return empty response
+        if not answer or not answer.strip():
+            answer = "⚠️ Error: No response generated. Please check server logs."
             
-            if response.status_code == 200:
-                answer += response.json().get("response", "")
-            else:
-                raise HTTPException(status_code=500, detail=f"Ollama Error: {response.text}")
-        
-        # Fallback if LM Studio or others (not implemented yet)
-        
-        return {"response": answer}
-        
+        return {"response": answer, "reasoning": reasoning_content, "provider": used_provider}
+
     except Exception as e:
         print(f"Query error: {e}")
         return JSONResponse(status_code=500, content={"response": f"I encountered an error: {str(e)}"})
@@ -711,5 +896,77 @@ async def list_documents(x_workspace: Optional[str] = Header(default="default"))
         print(f"List documents error: {e}")
         return []
 
+# --- Static Files & SPA Fallback ---
+
+# Determine the path to the dist folder (relative to this script)
+# Script is in webapp_api/, dist is in webapp/dist/
+BASE_DIR = Path(__file__).resolve().parent
+DIST_DIR = BASE_DIR.parent / "webapp" / "dist"
+
+if DIST_DIR.exists():
+    print(f"Serving static files from: {DIST_DIR}")
+    # Mount static assets first (CSS, JS, media)
+    # The React build puts them in 'static/', but we also have 'asset-manifest.json' etc. at root.
+    # We will let the catch-all handle root files, but explicit /static mount is good for performance if needed.
+    app.mount("/static", StaticFiles(directory=DIST_DIR / "static"), name="static")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Don't catch API routes
+        if full_path.startswith("api"):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        
+        # Check if file exists in dist (e.g. favicon.ico, logo.png)
+        file_path = DIST_DIR / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        
+        # Fallback to index.html for SPA routing
+        return FileResponse(DIST_DIR / "index.html")
+else:
+    print(f"WARNING: 'webapp/dist' folder not found at {DIST_DIR}. Frontend will not be served.")
+
+
 if __name__ == "__main__":
+    # Run on 0.0.0.0 to allow external access
+    # Your laptop serves as the LLM host - Ollama runs locally and server forwards requests
+    print("=" * 70)
+    print("RAG Server - Laptop als LLM-Host")
+    print("=" * 70)
+    
+    # Verify Supabase Connection
+    try:
+        conn = get_db_connection()
+        conn.close()
+        print("✓ Supabase connection successful")
+        
+        # Ensure default tables exist
+        ensure_workspace_tables("default")
+        print("✓ Default workspace tables verified")
+        
+    except Exception as e:
+        print(f"✗ Supabase connection FAILED: {e}")
+        print("  Please check your .env file for SUPABASE_URL and SUPABASE_KEY")
+
+    # Verify Uploads Directory
+    uploads_dir = Path("uploads")
+    if not uploads_dir.exists():
+        try:
+            uploads_dir.mkdir(exist_ok=True)
+            print(f"✓ Created uploads directory: {uploads_dir.resolve()}")
+        except Exception as e:
+             print(f"✗ Failed to create uploads directory: {e}")
+    else:
+        print(f"✓ Uploads directory exists: {uploads_dir.resolve()}")
+
+    print(f"Server: http://0.0.0.0:8000 (öffentlich erreichbar)")
+    print(f"LLM Provider: {LLM_PROVIDER}")
+    print(f"Embedding Provider: {EMBEDDING_PROVIDER}")
+    
+    if LLM_PROVIDER == "ollama" or EMBEDDING_PROVIDER == "ollama":
+        print(f"Ollama URL: {OLLAMA_URL}")
+        print("\n⚠️  WICHTIG: Stelle sicher, dass Ollama auf diesem Laptop läuft!")
+    
+    print("=" * 70)
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -9,9 +9,7 @@ const Sidebar = ({
   currentWorkspace, 
   onWorkspaceChange,
   llmProvider,
-  setLlmProvider,
-  webSearch,
-  setWebSearch
+  setLlmProvider
 }) => {
   return (
     <>
@@ -86,22 +84,11 @@ const Sidebar = ({
                   onChange={(e) => setLlmProvider(e.target.value)}
                   className="config-select"
                 >
+                  <option value="huggingface">Kimi K2 Thinking (Reasoning)</option>
+                  <option value="huggingface2">Meta Llama 3 8B Instruct</option>
                   <option value="ollama">Ollama (Local OSS 20B)</option>
-                  <option value="gemini">Gemini 2.0 Flash (Cloud)</option>
                 </select>
                 <ChevronDown size={14} className="config-select-icon" />
-              </div>
-            </div>
-
-            <div className="config-item">
-              <label className="config-label">Knowledge Access</label>
-              <div className="toggle-wrapper" onClick={() => setWebSearch(!webSearch)}>
-                <div className={`toggle-track ${webSearch ? 'active' : ''}`}>
-                  <div className="toggle-thumb" />
-                </div>
-                <span className="toggle-label">
-                  {webSearch ? 'Web/General Knowledge Allowed' : 'Strictly Documents Only'}
-                </span>
               </div>
             </div>
 

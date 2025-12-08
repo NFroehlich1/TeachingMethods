@@ -47,11 +47,11 @@ app.add_middleware(
 # Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://ngbhnjvojqqesacnijwk.supabase.co")
 SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "Test_1082?!")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyC7PgLQv4QByfLjkT398fp9Jgs7MNiUdmk")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # LLM Provider selection (can be "gemini", "openai", "lmstudio", or "ollama")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")  # Default to Ollama (local OSS 20B)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # Default to Ollama (local OSS 20B)
 
 # Local model configuration - OSS 20B
 LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")

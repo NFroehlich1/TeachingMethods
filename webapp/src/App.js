@@ -5,20 +5,44 @@ import DocumentUpload from './components/DocumentUpload';
 import Sidebar from './components/Sidebar';
 import { Menu, GraduationCap } from 'lucide-react';
 
+// API URL - kann über Umgebungsvariable gesetzt werden für öffentlichen Zugriff
+const API_URL = process.env.REACT_APP_API_URL || ''; // Empty string allows relative paths for same-origin (production/tunnel)
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(true); // Default open on desktop
   const [currentWorkspace, setCurrentWorkspace] = useState('default'); // 'default' = Project Based Learning
-  const [llmProvider, setLlmProvider] = useState('ollama');
-  const [webSearch, setWebSearch] = useState(false);
+  // Force default to huggingface (Kimi K2 Thinking)
+  const [llmProvider, setLlmProvider] = useState('huggingface'); 
+  const [webSearch] = useState(true); // Always allow general knowledge
+
+    // Check backend health and provider on start
+    const checkHealth = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/health`);
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Backend status:", data);
+          // Only set provider if it hasn't been set by user yet (checking against default)
+          // Or remove this entirely to let frontend default rule
+          // For now, let's disable auto-switching to backend default to allow manual override
+          // if (data.llm_provider) {
+          //   setLlmProvider(data.llm_provider);
+          // }
+        }
+      } catch (error) {
+        console.error("Backend health check failed:", error);
+      }
+    };
+    checkHealth();
 
   // Load documents when workspace changes
   useEffect(() => {
     const fetchDocuments = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/documents', {
+        const response = await fetch(`${API_URL}/api/documents`, {
           headers: { 'X-Workspace': currentWorkspace }
         });
         if (response.ok) {
@@ -33,8 +57,10 @@ function App() {
     fetchDocuments();
     
     // Clear messages on workspace switch
-    setMessages([]);
-    addMessage('system', `Switched workspace to: ${currentWorkspace === 'default' ? 'Project Based Learning' : 'Teaching Methods'}.`);
+    setMessages([{
+      role: 'system', 
+      content: `Switched workspace to: ${currentWorkspace === 'default' ? 'Project Based Learning' : 'Teaching Methods'}.`
+    }]);
   }, [currentWorkspace]);
 
   // Responsive sidebar handling
@@ -76,7 +102,7 @@ function App() {
         content: msg.content
       }));
 
-      const response = await fetch('http://localhost:8000/api/query', {
+      const response = await fetch(`${API_URL}/api/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,7 +155,7 @@ function App() {
       formData.append('file', file);
 
       try {
-        const response = await fetch('http://localhost:8000/api/upload', {
+        const response = await fetch(`${API_URL}/api/upload`, {
           method: 'POST',
           headers: {
             'X-Workspace': currentWorkspace
@@ -179,8 +205,6 @@ function App() {
         onWorkspaceChange={setCurrentWorkspace}
         llmProvider={llmProvider}
         setLlmProvider={setLlmProvider}
-        webSearch={webSearch}
-        setWebSearch={setWebSearch}
       />
       <div className={`main-content ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <header className="app-header">

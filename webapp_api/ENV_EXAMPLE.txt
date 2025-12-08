@@ -1,0 +1,12 @@
+# Beispiel .env Datei für Remote-Frontend
+# Kopiere diese Datei nach webapp/.env und passe die URL an
+
+# Backend-URL - Ersetze mit der IP-Adresse deines PCs
+# Beispiel: http://100.124.29.158:8000
+REACT_APP_API_URL=http://DEINE-PC-IP:8000
+
+# Um die IP-Adresse deines PCs herauszufinden:
+# macOS: ipconfig getifaddr en0
+# Linux: hostname -I
+# Windows: ipconfig | findstr IPv4
+
