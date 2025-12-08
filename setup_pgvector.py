@@ -57,7 +57,7 @@ if host and not host.startswith("db."):
     parts = host.split(".")
     if len(parts) >= 2 and parts[-2] == "supabase":
         project_ref = parts[0]
-        host = f"db.{project_ref}.supabase.co"
+        host = f"db.{project_ref}.supabase.com"
 
 db_host = host or "localhost"
 db_port = 5432
