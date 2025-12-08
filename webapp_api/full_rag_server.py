@@ -28,9 +28,22 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD")
 SUPABASE_DB_USER = "postgres"
-# Extract host from Supabase URL (e.g. https://xyz.supabase.co -> db.xyz.supabase.co)
-project_ref = SUPABASE_URL.split("//")[1].split(".")[0]
-SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co"
+# Extract host from Supabase URL (handles both .co and .com domains)
+# Database host is always db.{project_ref}.supabase.co regardless of API URL domain
+from urllib.parse import urlparse
+if SUPABASE_URL:
+    parsed = urlparse(SUPABASE_URL)
+    hostname = parsed.hostname or ""
+    # Extract project ref (first part before .supabase)
+    if hostname and ".supabase" in hostname:
+        project_ref = hostname.split(".")[0]
+        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co"
+    else:
+        # Fallback: try old method
+        project_ref = SUPABASE_URL.split("//")[1].split(".")[0] if "//" in SUPABASE_URL else ""
+        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co" if project_ref else "localhost"
+else:
+    SUPABASE_DB_HOST = "localhost"
 SUPABASE_DB_PORT = "5432"
 
 # LLM Configuration - Default to local Ollama for laptop hosting
