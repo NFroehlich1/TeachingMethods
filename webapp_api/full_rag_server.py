@@ -141,33 +141,41 @@ def get_db_connection():
             last_error = None
             
             for pooler_host in pooler_hosts:
-                try:
-                    print(f"DEBUG: Trying Pooler Host: {pooler_host}")
-                    pooler_ip = socket.gethostbyname(pooler_host)
-                    print(f"DEBUG: Resolved to {pooler_ip}")
-                    
-                    # Try to connect
-                    test_conn = psycopg2.connect(
-                        dbname="postgres",
-                        user=pooler_user,
-                        password=SUPABASE_DB_PASSWORD,
-                        host=pooler_ip,
-                        port=pooler_port,
-                        connect_timeout=5
-                    )
-                    # If we get here, connection successful!
-                    test_conn.close()
-                    
-                    print(f"SUCCESS: Connected via {pooler_host}")
-                    connect_host = pooler_ip
-                    db_port = pooler_port
-                    db_user = pooler_user
-                    connected = True
+                # Try different username formats for the pooler
+                # 1. postgres.project_ref (Standard)
+                # 2. postgres (Manchmal akzeptiert der Pooler das, wenn der Hostname eindeutig ist)
+                pooler_users_to_try = [f"postgres.{project_ref}", "postgres"]
+                
+                for p_user in pooler_users_to_try:
+                    try:
+                        print(f"DEBUG: Trying Pooler Host: {pooler_host} with User: {p_user}")
+                        pooler_ip = socket.gethostbyname(pooler_host)
+                        print(f"DEBUG: Resolved to {pooler_ip}")
+                        
+                        # Try to connect
+                        test_conn = psycopg2.connect(
+                            dbname="postgres",
+                            user=p_user,
+                            password=SUPABASE_DB_PASSWORD,
+                            host=pooler_ip,
+                            port=pooler_port,
+                            connect_timeout=5
+                        )
+                        # If we get here, connection successful!
+                        test_conn.close()
+                        
+                        print(f"SUCCESS: Connected via {pooler_host} as {p_user}")
+                        connect_host = pooler_ip
+                        db_port = pooler_port
+                        db_user = p_user
+                        connected = True
+                        break
+                    except Exception as e:
+                        print(f"FAILED: Could not connect to {pooler_host} as {p_user}: {e}")
+                        last_error = e
+                
+                if connected:
                     break
-                    
-                except Exception as e:
-                    print(f"FAILED: Could not connect to {pooler_host}: {e}")
-                    last_error = e
             
             if not connected:
                 print("ERROR: Could not connect to any common pooler region.")
