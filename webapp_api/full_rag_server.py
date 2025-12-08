@@ -27,7 +27,8 @@ load_dotenv(dotenv_path=DOTENV_PATH)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD")
-SUPABASE_DB_USER = "postgres"
+# Fix: Read DB User from env, default to postgres only if not set
+SUPABASE_DB_USER = os.getenv("SUPABASE_DB_USER", "postgres")
 
 # 1. Try manual override from environment variable
 if os.getenv("SUPABASE_DB_HOST"):
