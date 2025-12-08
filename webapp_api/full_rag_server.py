@@ -103,30 +103,60 @@ def get_db_connection():
             # If this fails, user must set SUPABASE_DB_HOST manually.
             print("ATTEMPTING FALLBACK: Switching to Supabase Connection Pooler (IPv4)...")
             
-            # Common pooler host for EU projects (can be overridden by env var)
-            # Ideally user should provide this, but we try to fix it automatically.
-            pooler_host = "aws-0-eu-central-1.pooler.supabase.com"
+            # Common pooler hosts to try (in order of probability)
+            # 1. EU Central 1 (Frankfurt) - Very common
+            # 2. EU West 1 (Ireland)
+            # 3. US East 1 (N. Virginia)
+            # 4. AP Southeast 1 (Singapore)
+            pooler_hosts = [
+                "aws-0-eu-central-1.pooler.supabase.com",
+                "aws-0-eu-west-1.pooler.supabase.com",
+                "aws-0-us-east-1.pooler.supabase.com", 
+                "aws-0-ap-southeast-1.pooler.supabase.com"
+            ]
+            
             pooler_user = f"postgres.{project_ref}"
             pooler_port = "6543" # Transaction mode
             
-            print(f"DEBUG: Using Pooler Host: {pooler_host}")
-            print(f"DEBUG: Using Pooler User: {pooler_user}")
+            # Try to find a working pooler
+            connected = False
+            last_error = None
             
-            # Verify if pooler resolves
-            try:
-                pooler_ip = socket.gethostbyname(pooler_host)
-                print(f"DEBUG: Pooler resolved to {pooler_ip}")
-                
-                # Update connection details to use Pooler
-                connect_host = pooler_ip
-                db_port = pooler_port
-                db_user = pooler_user
-                # Password remains the same
-                
-            except socket.gaierror:
-                print("ERROR: Could not resolve fallback pooler host either.")
-                # Throw original error implicitly by letting connect fail or re-raising
-                connect_host = db_host # Revert to original to show true error
+            for pooler_host in pooler_hosts:
+                try:
+                    print(f"DEBUG: Trying Pooler Host: {pooler_host}")
+                    pooler_ip = socket.gethostbyname(pooler_host)
+                    print(f"DEBUG: Resolved to {pooler_ip}")
+                    
+                    # Try to connect
+                    test_conn = psycopg2.connect(
+                        dbname="postgres",
+                        user=pooler_user,
+                        password=SUPABASE_DB_PASSWORD,
+                        host=pooler_ip,
+                        port=pooler_port,
+                        connect_timeout=5
+                    )
+                    # If we get here, connection successful!
+                    test_conn.close()
+                    
+                    print(f"SUCCESS: Connected via {pooler_host}")
+                    connect_host = pooler_ip
+                    db_port = pooler_port
+                    db_user = pooler_user
+                    connected = True
+                    break
+                    
+                except Exception as e:
+                    print(f"FAILED: Could not connect to {pooler_host}: {e}")
+                    last_error = e
+            
+            if not connected:
+                print("ERROR: Could not connect to any common pooler region.")
+                if last_error:
+                    print(f"Last error: {last_error}")
+                # Fallback to original host to show true error
+                connect_host = db_host 
         
         conn = psycopg2.connect(
             dbname="postgres",
