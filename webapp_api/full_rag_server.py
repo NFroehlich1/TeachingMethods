@@ -51,7 +51,9 @@ elif SUPABASE_URL:
         SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co" if project_ref else "localhost"
 else:
     SUPABASE_DB_HOST = "localhost"
-SUPABASE_DB_PORT = "5432"
+
+# Allow Port override
+SUPABASE_DB_PORT = os.getenv("SUPABASE_DB_PORT", "5432")
 
 # LLM Configuration - Default to local Ollama for laptop hosting
 # When accessed from outside, your laptop serves as the LLM host
