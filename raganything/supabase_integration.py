@@ -97,15 +97,15 @@ def extract_supabase_connection_info(supabase_url: str) -> Dict[str, str]:
     host = parsed.hostname
     
     # Supabase uses port 5432 for direct PostgreSQL connections
-    # The hostname format is typically: db.xxxxx.supabase.com
-    # But we can also use the project reference: xxxxx.supabase.co or .com
+    # The hostname format is typically: db.xxxxx.supabase.co
+    # But we can also use the project reference: xxxxx.supabase.co
     if host and not host.startswith("db."):
         # Convert project URL to database host
         # Extract project reference from hostname
         parts = host.split(".")
         if len(parts) >= 2 and parts[-2] == "supabase":
             project_ref = parts[0]
-            host = f"db.{project_ref}.supabase.com"
+            host = f"db.{project_ref}.supabase.co"
     
     return {
         "host": host or "localhost",

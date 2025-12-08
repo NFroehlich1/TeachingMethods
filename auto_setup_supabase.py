@@ -140,7 +140,7 @@ try:
         parts = host.split(".")
         if len(parts) >= 2 and parts[-2] == "supabase":
             project_ref = parts[0]
-            host = f"db.{project_ref}.supabase.com"
+            host = f"db.{project_ref}.supabase.co"
     
     conn = psycopg2.connect(
         host=host,

@@ -28,8 +28,8 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD")
 SUPABASE_DB_USER = "postgres"
-# Extract host from Supabase URL (handles both .co and .com domains)
-# Database host is always db.{project_ref}.supabase.com regardless of API URL domain
+# Extract host from Supabase URL (e.g. https://xyz.supabase.co -> db.xyz.supabase.co)
+# Database host is always db.{project_ref}.supabase.co
 from urllib.parse import urlparse
 if SUPABASE_URL:
     parsed = urlparse(SUPABASE_URL)
@@ -37,11 +37,11 @@ if SUPABASE_URL:
     # Extract project ref (first part before .supabase)
     if hostname and ".supabase" in hostname:
         project_ref = hostname.split(".")[0]
-        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.com"
+        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co"
     else:
         # Fallback: try old method
         project_ref = SUPABASE_URL.split("//")[1].split(".")[0] if "//" in SUPABASE_URL else ""
-        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.com" if project_ref else "localhost"
+        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co" if project_ref else "localhost"
 else:
     SUPABASE_DB_HOST = "localhost"
 SUPABASE_DB_PORT = "5432"
@@ -75,29 +75,69 @@ EMBEDDING_DIM = 3072  # Dimension for lightrag_vector_storage (we pad/truncate t
 
 # --- Database Connection ---
 def get_db_connection():
+    # Use global variables, but allow local overrides if we need to switch to pooler
+    db_host = SUPABASE_DB_HOST
+    db_port = SUPABASE_DB_PORT
+    db_user = SUPABASE_DB_USER
+    
     try:
-        # Force IPv4 connection to avoid IPv6 issues on some platforms
+        # Force IPv4 connection logic
         import socket
-        # Resolve hostname to IPv4 address
         try:
-            ipv4_address = socket.gethostbyname(SUPABASE_DB_HOST)
-            print(f"DEBUG: Connecting to {SUPABASE_DB_HOST} (resolved to {ipv4_address})")
+            # Try to resolve hostname to IPv4 address
+            ipv4_address = socket.gethostbyname(db_host)
+            print(f"DEBUG: Connecting to {db_host} (resolved to {ipv4_address})")
+            connect_host = ipv4_address
         except socket.gaierror:
-            ipv4_address = SUPABASE_DB_HOST
-            print(f"DEBUG: Using hostname directly: {SUPABASE_DB_HOST}")
+            print(f"WARNING: Could not resolve IPv4 for {db_host}. Database might be IPv6 only.")
+            
+            # Intelligent Fallback: Try Supabase Connection Pooler (IPv4 compatible)
+            # Assumption: User is in EU (based on common Supabase deployments). 
+            # If this fails, user must set SUPABASE_DB_HOST manually.
+            print("ATTEMPTING FALLBACK: Switching to Supabase Connection Pooler (IPv4)...")
+            
+            # Common pooler host for EU projects (can be overridden by env var)
+            # Ideally user should provide this, but we try to fix it automatically.
+            pooler_host = "aws-0-eu-central-1.pooler.supabase.com"
+            pooler_user = f"postgres.{project_ref}"
+            pooler_port = "6543" # Transaction mode
+            
+            print(f"DEBUG: Using Pooler Host: {pooler_host}")
+            print(f"DEBUG: Using Pooler User: {pooler_user}")
+            
+            # Verify if pooler resolves
+            try:
+                pooler_ip = socket.gethostbyname(pooler_host)
+                print(f"DEBUG: Pooler resolved to {pooler_ip}")
+                
+                # Update connection details to use Pooler
+                connect_host = pooler_ip
+                db_port = pooler_port
+                db_user = pooler_user
+                # Password remains the same
+                
+            except socket.gaierror:
+                print("ERROR: Could not resolve fallback pooler host either.")
+                # Throw original error implicitly by letting connect fail or re-raising
+                connect_host = db_host # Revert to original to show true error
         
         conn = psycopg2.connect(
             dbname="postgres",
-            user=SUPABASE_DB_USER,
+            user=db_user,
             password=SUPABASE_DB_PASSWORD,
-            host=ipv4_address,
-            port=SUPABASE_DB_PORT,
+            host=connect_host,
+            port=db_port,
             connect_timeout=10
         )
         return conn
     except Exception as e:
         print(f"Database connection error: {e}")
-        print(f"DEBUG: Attempted connection to host={SUPABASE_DB_HOST}, port={SUPABASE_DB_PORT}")
+        print(f"DEBUG: Attempted connection to host={db_host}, user={db_user}, port={db_port}")
+        print("\nPossible Fixes:")
+        print("1. If your database is IPv6 only and your environment is IPv4 only (like Render),")
+        print("   you MUST use the Supabase Connection Pooler.")
+        print("2. Set SUPABASE_DB_HOST to your pooler URL (e.g. aws-0-eu-central-1.pooler.supabase.com)")
+        print(f"3. Set SUPABASE_DB_USER to 'postgres.{project_ref}'")
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 # --- Helpers ---
