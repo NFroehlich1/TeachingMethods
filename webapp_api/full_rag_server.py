@@ -969,4 +969,7 @@ if __name__ == "__main__":
     
     print("=" * 70)
     
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use PORT from environment variable (required for Render.com and other cloud platforms)
+    PORT = int(os.getenv("PORT", 8000))
+    print(f"Starting server on port {PORT}")
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
