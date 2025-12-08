@@ -9,7 +9,8 @@ pip install -r requirements.txt
 echo "Building React Frontend..."
 cd webapp
 npm install
-npm run build
+# Set CI=false to prevent build failure on warnings
+CI=false npm run build
 cd ..
 
 # Move dist to expected location if needed (optional check)
