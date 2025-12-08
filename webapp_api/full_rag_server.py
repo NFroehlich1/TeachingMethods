@@ -104,10 +104,10 @@ def get_db_connection():
             print("ATTEMPTING FALLBACK: Switching to Supabase Connection Pooler (IPv4)...")
             
             # Common pooler hosts to try (in order of probability based on typical deployments)
-            # Expanded list to cover more regions
+            # Prioritizing eu-west-1 (Ireland) as identified via Supabase API for this project
             pooler_hosts = [
+                "aws-0-eu-west-1.pooler.supabase.com",    # Ireland (Correct for project ngbhnjvojqqesacnijwk)
                 "aws-0-eu-central-1.pooler.supabase.com", # Frankfurt
-                "aws-0-eu-west-1.pooler.supabase.com",    # Ireland
                 "aws-0-eu-west-2.pooler.supabase.com",    # London
                 "aws-0-eu-west-3.pooler.supabase.com",    # Paris
                 "aws-0-us-east-1.pooler.supabase.com",    # N. Virginia
