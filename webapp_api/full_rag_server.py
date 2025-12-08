@@ -76,16 +76,28 @@ EMBEDDING_DIM = 3072  # Dimension for lightrag_vector_storage (we pad/truncate t
 # --- Database Connection ---
 def get_db_connection():
     try:
+        # Force IPv4 connection to avoid IPv6 issues on some platforms
+        import socket
+        # Resolve hostname to IPv4 address
+        try:
+            ipv4_address = socket.gethostbyname(SUPABASE_DB_HOST)
+            print(f"DEBUG: Connecting to {SUPABASE_DB_HOST} (resolved to {ipv4_address})")
+        except socket.gaierror:
+            ipv4_address = SUPABASE_DB_HOST
+            print(f"DEBUG: Using hostname directly: {SUPABASE_DB_HOST}")
+        
         conn = psycopg2.connect(
             dbname="postgres",
             user=SUPABASE_DB_USER,
             password=SUPABASE_DB_PASSWORD,
-            host=SUPABASE_DB_HOST,
-            port=SUPABASE_DB_PORT
+            host=ipv4_address,
+            port=SUPABASE_DB_PORT,
+            connect_timeout=10
         )
         return conn
     except Exception as e:
         print(f"Database connection error: {e}")
+        print(f"DEBUG: Attempted connection to host={SUPABASE_DB_HOST}, port={SUPABASE_DB_PORT}")
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 # --- Helpers ---
