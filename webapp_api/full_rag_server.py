@@ -1056,10 +1056,17 @@ DIST_DIR = BASE_DIR.parent / "webapp" / "dist"
 if DIST_DIR.exists():
     print(f"Serving static files from: {DIST_DIR}")
     # Mount static assets first (CSS, JS, media)
-    # The React build puts them in 'static/', but we also have 'asset-manifest.json' etc. at root.
-    # We will let the catch-all handle root files, but explicit /static mount is good for performance if needed.
     app.mount("/static", StaticFiles(directory=DIST_DIR / "static"), name="static")
 
+    # Serve root path explicitly FIRST (before catch-all)
+    @app.get("/")
+    async def serve_root():
+        index_path = DIST_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Frontend not found. Please build the React app first.")
+
+    # Catch-all route for SPA routing (must come AFTER specific routes)
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         # Don't catch API routes
@@ -1072,12 +1079,10 @@ if DIST_DIR.exists():
             return FileResponse(file_path)
         
         # Fallback to index.html for SPA routing (for any unknown path)
-        return FileResponse(DIST_DIR / "index.html")
-
-    # Serve root path explicitly to index.html
-    @app.get("/")
-    async def serve_root():
-        return FileResponse(DIST_DIR / "index.html")
+        index_path = DIST_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Frontend not found")
 else:
     print(f"WARNING: 'webapp/dist' folder not found at {DIST_DIR}. Frontend will not be served.")
 
