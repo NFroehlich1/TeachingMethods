@@ -28,10 +28,17 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD")
 SUPABASE_DB_USER = "postgres"
-# Extract host from Supabase URL (e.g. https://xyz.supabase.co -> db.xyz.supabase.co)
-# Database host is always db.{project_ref}.supabase.co
-from urllib.parse import urlparse
-if SUPABASE_URL:
+
+# 1. Try manual override from environment variable
+if os.getenv("SUPABASE_DB_HOST"):
+    SUPABASE_DB_HOST = os.getenv("SUPABASE_DB_HOST")
+    print(f"Configuration: Using manual SUPABASE_DB_HOST: {SUPABASE_DB_HOST}")
+
+# 2. Else, extract host from Supabase URL
+elif SUPABASE_URL:
+    # Extract host from Supabase URL (e.g. https://xyz.supabase.co -> db.xyz.supabase.co)
+    # Database host is always db.{project_ref}.supabase.co
+    from urllib.parse import urlparse
     parsed = urlparse(SUPABASE_URL)
     hostname = parsed.hostname or ""
     # Extract project ref (first part before .supabase)
