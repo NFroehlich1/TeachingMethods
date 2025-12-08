@@ -29,7 +29,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD")
 SUPABASE_DB_USER = "postgres"
 # Extract host from Supabase URL (handles both .co and .com domains)
-# Database host is always db.{project_ref}.supabase.co regardless of API URL domain
+# Database host is always db.{project_ref}.supabase.com regardless of API URL domain
 from urllib.parse import urlparse
 if SUPABASE_URL:
     parsed = urlparse(SUPABASE_URL)
@@ -37,11 +37,11 @@ if SUPABASE_URL:
     # Extract project ref (first part before .supabase)
     if hostname and ".supabase" in hostname:
         project_ref = hostname.split(".")[0]
-        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co"
+        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.com"
     else:
         # Fallback: try old method
         project_ref = SUPABASE_URL.split("//")[1].split(".")[0] if "//" in SUPABASE_URL else ""
-        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.co" if project_ref else "localhost"
+        SUPABASE_DB_HOST = f"db.{project_ref}.supabase.com" if project_ref else "localhost"
 else:
     SUPABASE_DB_HOST = "localhost"
 SUPABASE_DB_PORT = "5432"
