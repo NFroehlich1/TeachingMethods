@@ -125,8 +125,10 @@ def get_db_connection():
             
             # Common pooler hosts to try (in order of probability based on typical deployments)
             # Prioritizing eu-west-1 (Ireland) as identified via Supabase API for this project
+            # IMPORTANT: Use aws-1 (not aws-0) for Shared Pooler in eu-west-1
             pooler_hosts = [
-                "aws-0-eu-west-1.pooler.supabase.com",    # Ireland (Correct for project ngbhnjvojqqesacnijwk)
+                "aws-1-eu-west-1.pooler.supabase.com",    # Ireland - Shared Pooler (Correct for project ngbhnjvojqqesacnijwk)
+                "aws-0-eu-west-1.pooler.supabase.com",    # Ireland - Dedicated Pooler (fallback)
                 "aws-0-eu-central-1.pooler.supabase.com", # Frankfurt
                 "aws-0-eu-west-2.pooler.supabase.com",    # London
                 "aws-0-eu-west-3.pooler.supabase.com",    # Paris
@@ -146,10 +148,10 @@ def get_db_connection():
             if "ngbhnjvojqqesacnijwk" in SUPABASE_URL:
                 print("DEBUG: Detected known project 'ngbhnjvojqqesacnijwk'. Enforcing correct pooler settings.")
                 project_ref = "ngbhnjvojqqesacnijwk"
-                # Ensure Ireland is first
-                if "aws-0-eu-west-1.pooler.supabase.com" in pooler_hosts:
-                    pooler_hosts.remove("aws-0-eu-west-1.pooler.supabase.com")
-                pooler_hosts.insert(0, "aws-0-eu-west-1.pooler.supabase.com")
+                # Ensure Ireland Shared Pooler (aws-1) is first
+                if "aws-1-eu-west-1.pooler.supabase.com" in pooler_hosts:
+                    pooler_hosts.remove("aws-1-eu-west-1.pooler.supabase.com")
+                pooler_hosts.insert(0, "aws-1-eu-west-1.pooler.supabase.com")
 
             pooler_user = f"postgres.{project_ref}"
             
