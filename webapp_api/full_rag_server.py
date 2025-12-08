@@ -921,7 +921,12 @@ if DIST_DIR.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
         
-        # Fallback to index.html for SPA routing
+        # Fallback to index.html for SPA routing (for any unknown path)
+        return FileResponse(DIST_DIR / "index.html")
+
+    # Serve root path explicitly to index.html
+    @app.get("/")
+    async def serve_root():
         return FileResponse(DIST_DIR / "index.html")
 else:
     print(f"WARNING: 'webapp/dist' folder not found at {DIST_DIR}. Frontend will not be served.")
