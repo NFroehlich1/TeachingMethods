@@ -25,8 +25,10 @@ To make this application work independently of your laptop, you need to deploy i
 4. **Settings:**
    - **Name:** rag-chatbot
    - **Runtime:** Python 3
-   - **Build Command:** `pip install -r requirements.txt`
+   - **Build Command:** `pip install -r requirements.txt && cd webapp && npm install && npm run build && cd ..`
    - **Start Command:** `python webapp_api/full_rag_server.py`
+   
+   **WICHTIG:** Render installiert Node.js automatisch, wenn npm-Befehle im Build Command erkannt werden. Falls der Build fehlschlägt, stelle sicher, dass `package.json` im `webapp/` Verzeichnis existiert.
 5. **Environment Variables:**
    Add the following variables (copy values from your local `.env` file):
    - `SUPABASE_URL`
