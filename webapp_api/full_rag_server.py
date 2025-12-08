@@ -103,16 +103,22 @@ def get_db_connection():
             # If this fails, user must set SUPABASE_DB_HOST manually.
             print("ATTEMPTING FALLBACK: Switching to Supabase Connection Pooler (IPv4)...")
             
-            # Common pooler hosts to try (in order of probability)
-            # 1. EU Central 1 (Frankfurt) - Very common
-            # 2. EU West 1 (Ireland)
-            # 3. US East 1 (N. Virginia)
-            # 4. AP Southeast 1 (Singapore)
+            # Common pooler hosts to try (in order of probability based on typical deployments)
+            # Expanded list to cover more regions
             pooler_hosts = [
-                "aws-0-eu-central-1.pooler.supabase.com",
-                "aws-0-eu-west-1.pooler.supabase.com",
-                "aws-0-us-east-1.pooler.supabase.com", 
-                "aws-0-ap-southeast-1.pooler.supabase.com"
+                "aws-0-eu-central-1.pooler.supabase.com", # Frankfurt
+                "aws-0-eu-west-1.pooler.supabase.com",    # Ireland
+                "aws-0-eu-west-2.pooler.supabase.com",    # London
+                "aws-0-eu-west-3.pooler.supabase.com",    # Paris
+                "aws-0-us-east-1.pooler.supabase.com",    # N. Virginia
+                "aws-0-us-west-1.pooler.supabase.com",    # N. California
+                "aws-0-us-west-2.pooler.supabase.com",    # Oregon
+                "aws-0-ap-southeast-1.pooler.supabase.com", # Singapore
+                "aws-0-ap-northeast-1.pooler.supabase.com", # Tokyo
+                "aws-0-ap-northeast-2.pooler.supabase.com", # Seoul
+                "aws-0-ap-south-1.pooler.supabase.com",     # Mumbai
+                "aws-0-sa-east-1.pooler.supabase.com",      # São Paulo
+                "aws-0-ca-central-1.pooler.supabase.com",   # Canada
             ]
             
             pooler_user = f"postgres.{project_ref}"
