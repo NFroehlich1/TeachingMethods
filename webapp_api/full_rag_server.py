@@ -121,6 +121,18 @@ def get_db_connection():
                 "aws-0-ca-central-1.pooler.supabase.com",   # Canada
             ]
             
+            # FORCE FIX: If the project ref matches the known one, ensure we use the correct credentials
+            # This handles cases where extraction might have been weird
+            if "ngbhnjvojqqesacnijwk" in SUPABASE_URL:
+                print("DEBUG: Detected known project 'ngbhnjvojqqesacnijwk'. Enforcing correct pooler settings.")
+                project_ref = "ngbhnjvojqqesacnijwk"
+                # Ensure Ireland is first
+                if "aws-0-eu-west-1.pooler.supabase.com" in pooler_hosts:
+                    pooler_hosts.remove("aws-0-eu-west-1.pooler.supabase.com")
+                pooler_hosts.insert(0, "aws-0-eu-west-1.pooler.supabase.com")
+
+            pooler_user = f"postgres.{project_ref}"
+            
             pooler_user = f"postgres.{project_ref}"
             pooler_port = "6543" # Transaction mode
             
